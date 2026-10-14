@@ -1,20 +1,40 @@
 import { Slider as SliderPrimitive } from '@base-ui/react/slider';
 import { clsx } from 'clsx';
+import { useState } from 'react';
 
 import { mergeClassNames } from '@ui/utilities/internal/mergeClassNames';
+import { isDefined } from '@ui/utilities/utils/isDefined';
 
 import styles from '../Slider.module.scss';
 import { type SliderRootProps } from '../types/SliderRootProps';
+import { SliderControlInitializationEffect } from './SliderControlInitializationEffect';
+import { SliderControlRegistrationContext } from './SliderControlRegistrationContext';
 
 export const SliderRoot = <TValue extends number | readonly number[]>({
   className,
   color = 'accent',
   thumbAlignment = 'edge',
   ...props
-}: SliderRootProps<TValue>) => (
-  <SliderPrimitive.Root
-    {...props}
-    thumbAlignment={thumbAlignment}
-    className={mergeClassNames(clsx(styles.root, styles[color]), className)}
-  />
-);
+}: SliderRootProps<TValue>) => {
+  const [control, setControl] = useState<HTMLDivElement | null>(null);
+  const [initializedControl, setInitializedControl] =
+    useState<HTMLDivElement | null>(null);
+  const shouldInitializeControl =
+    isDefined(control) &&
+    control !== initializedControl &&
+    thumbAlignment !== 'center';
+
+  return (
+    <SliderControlRegistrationContext.Provider value={setControl}>
+      <SliderControlInitializationEffect
+        control={control}
+        onControlInitialized={setInitializedControl}
+      />
+      <SliderPrimitive.Root
+        {...props}
+        thumbAlignment={shouldInitializeControl ? 'center' : thumbAlignment}
+        className={mergeClassNames(clsx(styles.root, styles[color]), className)}
+      />
+    </SliderControlRegistrationContext.Provider>
+  );
+};

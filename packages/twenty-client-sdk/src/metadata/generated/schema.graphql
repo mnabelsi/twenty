@@ -30,6 +30,48 @@ type Agent {
   updatedAt: DateTime!
 }
 
+type AgentChatChannel {
+  color: String
+  icon: String
+  id: UUID!
+  isAccessible: Boolean
+  isCustom: Boolean!
+  name: String!
+  position: Float!
+  roleIds: [UUID!]!
+}
+
+enum AgentChatChannelAssignmentFilter {
+  ANY
+  ASSIGNED_TO_ME
+  UNASSIGNED
+}
+
+type AgentChatChannelRole {
+  canAccessAllAgentChatChannels: Boolean!
+  icon: String
+  id: UUID!
+  label: String!
+}
+
+type AgentChatChannelSummary {
+  channelId: UUID!
+  hasUnreadOpen: Boolean!
+  openCount: Int!
+}
+
+type AgentChatChannelThreadIds {
+  endCursor: String
+  hasNextPage: Boolean!
+  threadIds: [UUID!]!
+}
+
+enum AgentChatChannelThreadStatus {
+  DONE
+  OPEN
+  SNOOZED
+}
+
 type AgentChatEvent {
   event: JSON!
   threadId: String!
@@ -214,6 +256,8 @@ type AiSystemPromptSection {
 
 enum AllMetadataName {
   agent
+  agentChatChannel
+  agentChatChannelRole
   applicationVariable
   commandMenuItem
   connectionProvider
@@ -1251,6 +1295,13 @@ input ConnectionParametersInput {
   username: String
 }
 
+input CreateAgentChatChannelInput {
+  color: String
+  icon: String
+  name: String!
+  roleIds: [UUID!]! = []
+}
+
 input CreateAgentInput {
   description: String
   icon: String
@@ -1422,6 +1473,7 @@ input CreateMessageSuppressionInput {
 }
 
 input CreateNavigationMenuItemInput {
+  agentChatChannelId: UUID
   color: String
   folderId: UUID
   icon: String
@@ -1498,6 +1550,7 @@ input CreateRecordExportInput {
 }
 
 input CreateRoleInput {
+  canAccessAllAgentChatChannels: Boolean
   canAccessAllTools: Boolean
   canBeAssignedToAgents: Boolean
   canBeAssignedToApiKeys: Boolean
@@ -3000,6 +3053,7 @@ type Mutation {
   completeNewWorkspaceLogoUpload(fileId: String!, workspaceId: String!): FileWithSignedUrl!
   completeWorkspaceLogoUpload(fileId: String!): FileWithSignedUrl!
   completeWorkspaceMemberProfilePictureUpload(fileId: String!): FileWithSignedUrl!
+  createAgentChatChannel(input: CreateAgentChatChannelInput!): AgentChatChannel!
   createApiKey(input: CreateApiKeyInput!): ApiKey!
   createAppMessageChannel(input: CreateAppMessageChannelInput!): MessageChannel!
   createApplicationFileUploads(applicationUniversalIdentifier: String!, files: [ApplicationFileUploadRequestInput!]!): CreateApplicationFileUploadsResult!
@@ -3007,7 +3061,7 @@ type Mutation {
   createApprovedAccessDomain(input: CreateApprovedAccessDomainInput!): ApprovedAccessDomain!
   createBillingPaymentMethodSetupIntent: BillingPaymentIntent!
   createCalendarEvent(input: CreateCalendarEventInput!): CreateCalendarEventOutput!
-  createChatThread: AgentChatThread!
+  createChatThread(channelId: UUID): AgentChatThread!
   createCommandMenuItem(input: CreateCommandMenuItemInput!): CommandMenuItem!
   createDevelopmentApplication(name: String!, universalIdentifier: String!): DevelopmentApplication!
   createEmailGroupChannel(input: CreateEmailGroupChannelInput!): CreateEmailGroupChannelOutput!
@@ -3048,6 +3102,7 @@ type Mutation {
   createViewSort(input: CreateViewSortInput!): ViewSort!
   createWebhook(input: CreateWebhookInput!): Webhook!
   deactivateSkill(id: UUID!): Skill!
+  deleteAgentChatChannel(channelId: UUID!, destinationChannelId: UUID): Boolean!
   deleteAppKeyValue(key: String!, scope: AppKeyValueScope = WORKSPACE): Boolean!
   deleteAppMessageChannel(id: UUID!): MessageChannel!
   deleteApplicationRegistration(id: String!): Boolean!
@@ -3125,6 +3180,8 @@ type Mutation {
   initiateOTPProvisioningForAuthenticatedUser: InitiateTwoFactorAuthenticationProvisioning!
   installApplication(universalIdentifier: String!, version: String): Application!
   installMarketplaceApp(universalIdentifier: String!, version: String): Boolean! @deprecated(reason: "Use installApplication instead")
+  markAgentChatThreadAsDoneInChannel(threadId: UUID!): Boolean!
+  moveAgentChatThreadToChannel(channelId: UUID, threadId: UUID!): Boolean!
   refreshEnterpriseValidityToken: Boolean!
   releaseEnterpriseServerBinding: EnterpriseLicenseInfoDTO!
   removeQueryFromEventStream(input: RemoveQueryFromEventStreamInput!): Boolean!
@@ -3132,6 +3189,7 @@ type Mutation {
   removeRoleFromAgent(agentId: UUID!): Boolean!
   renewApplicationToken(applicationRefreshToken: String!): ApplicationTokenPair!
   renewToken(appToken: String!): AuthTokens!
+  reopenAgentChatThreadInChannel(threadId: UUID!): Boolean!
   reportAppConnectionAuthFailure(input: ReportAppConnectionAuthFailureInput!): Boolean!
   resendEmailVerificationToken(email: String!, origin: String!): ResendEmailVerificationToken!
   resendWorkspaceInvitation(appTokenId: String!): SendInvitations!
@@ -3150,7 +3208,7 @@ type Mutation {
   runAgent(input: RunAgentInput!): RunAgentResult!
   runApplicationHealthCheck(applicationId: UUID!): ApplicationHealthCheckResult
   saveImapSmtpCaldavAccount(connectionParameters: EmailAccountConnectionParameters!, handle: String!, id: UUID): ImapSmtpCaldavConnectionSuccess!
-  sendChatMessage(browsingContext: JSON, fileAttachments: [FileAttachmentInput!], mentionedWorkspaceMemberIds: [UUID!], messageId: UUID!, modelId: String, text: String!, threadId: UUID!): SendChatMessageResult!
+  sendChatMessage(browsingContext: JSON, channelId: UUID, fileAttachments: [FileAttachmentInput!], mentionedWorkspaceMemberIds: [UUID!], messageId: UUID!, modelId: String, text: String!, threadId: UUID!): SendChatMessageResult!
   sendEmail(input: SendEmailInput!): SendEmailOutput!
   sendInboxMessage(input: SendInboxMessageInput!): SendInboxMessageResult!
   sendInvitations(emails: [String!]!, roleId: UUID): SendInvitations!
@@ -3167,6 +3225,7 @@ type Mutation {
   signUpInNewWorkspace(input: SignUpInNewWorkspaceInput): SignUp!
   signUpInWorkspace(captchaToken: String, email: String!, locale: String, password: String!, verifyEmailRedirectPath: String, workspaceId: UUID, workspaceInviteHash: String, workspacePersonalInviteToken: String): SignUp!
   skipSyncEmailOnboardingStep(isAutoSkipped: Boolean! = false): OnboardingStepSuccess!
+  snoozeAgentChatThreadInChannel(snoozedUntil: DateTime!, threadId: UUID!): Boolean!
   startChannelSync(connectedAccountId: UUID!): ChannelSyncSuccess!
   startWorkspaceSetupChat(companyContext: JSON, personContext: JSON): StartWorkspaceSetupChatResult!
   stopAgentChatStream(threadId: UUID!): Boolean!
@@ -3184,6 +3243,7 @@ type Mutation {
   triggerUninstallApplicationJob(input: TriggerUninstallApplicationJobInput!): TriggerUninstallApplicationJobResult! @deprecated(reason: "Use triggerUninstallApplication instead")
   triggerUpgradeApplication(input: TriggerUpgradeApplicationInput!): TriggerUpgradeApplicationResult!
   uninstallApplication(universalIdentifier: String!): Boolean!
+  updateAgentChatChannel(channelId: UUID!, input: UpdateAgentChatChannelInput!): AgentChatChannel!
   updateAgentChatThreadInboxState(action: AgentChatInboxAction!, snoozedUntil: DateTime, threadIds: [UUID!]!): [AgentChatThreadParticipant!]!
   updateApiKey(input: UpdateApiKeyInput!): ApiKey
   updateAppMessageChannel(input: UpdateAppMessageChannelInput!): MessageChannel!
@@ -3258,6 +3318,7 @@ type NativeModelCapabilities {
 }
 
 type NavigationMenuItem {
+  agentChatChannelId: UUID
   applicationId: UUID
   color: String
   createdAt: DateTime!
@@ -3278,6 +3339,7 @@ type NavigationMenuItem {
 }
 
 enum NavigationMenuItemType {
+  AGENT_CHAT_CHANNEL
   FOLDER
   LINK
   OBJECT
@@ -3755,6 +3817,10 @@ type PublicWorkspaceDataSummary {
 }
 
 type Query {
+  agentChatChannelRoles: [AgentChatChannelRole!]!
+  agentChatChannelSummaries: [AgentChatChannelSummary!]!
+  agentChatChannelThreadIds(after: String, assignment: AgentChatChannelAssignmentFilter, channelId: UUID!, first: Int, status: AgentChatChannelThreadStatus): AgentChatChannelThreadIds!
+  agentChatChannels: [AgentChatChannel!]!
   agentChatOpenThreadsSummary: AgentChatOpenThreadsSummary!
   agentRuns(agentId: UUID!, limit: Int! = 100): [AgentRun!]!
   aiChatUsage: AiChatUsage
@@ -4061,6 +4127,7 @@ type Role {
   agents: [Agent!]!
   apiKeys: [ApiKeyForRole!]!
   applicationId: UUID!
+  canAccessAllAgentChatChannels: Boolean!
   canAccessAllTools: Boolean!
   canBeAssignedToAgents: Boolean!
   canBeAssignedToApiKeys: Boolean!
@@ -4613,6 +4680,14 @@ enum UnsubscribeTopicVisibility {
   PUBLIC
 }
 
+input UpdateAgentChatChannelInput {
+  color: String
+  icon: String
+  name: String
+  position: Float
+  roleIds: [UUID!]
+}
+
 input UpdateAgentInput {
   description: String
   icon: String
@@ -4903,6 +4978,7 @@ input UpdateRoleInput {
 }
 
 input UpdateRolePayload {
+  canAccessAllAgentChatChannels: Boolean
   canAccessAllTools: Boolean
   canBeAssignedToAgents: Boolean
   canBeAssignedToApiKeys: Boolean

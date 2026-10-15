@@ -6,6 +6,7 @@ import { isDefined } from 'twenty-shared/utils';
 import { Repository } from 'typeorm';
 
 import { ApplicationTranslationCacheService } from 'src/engine/core-modules/application/application-translation/application-translation-cache.service';
+import { ApplicationTranslationNotificationService } from 'src/engine/core-modules/application/application-translation/application-translation-notification.service';
 import { ApplicationTranslationEntity } from 'src/engine/core-modules/application/application-translation/application-translation.entity';
 import { type ApplicationTranslationSyncAction } from 'src/engine/core-modules/application/application-translation/types/application-translation-sync-action.type';
 import { computeApplicationTranslationSyncActions } from 'src/engine/core-modules/application/application-translation/utils/compute-application-translation-sync-actions.util';
@@ -19,6 +20,7 @@ export class ApplicationTranslationSyncService {
     @InjectRepository(ApplicationTranslationEntity)
     private readonly applicationTranslationRepository: Repository<ApplicationTranslationEntity>,
     private readonly applicationTranslationCacheService: ApplicationTranslationCacheService,
+    private readonly applicationTranslationNotificationService: ApplicationTranslationNotificationService,
   ) {}
 
   async getSyncActions({
@@ -54,6 +56,26 @@ export class ApplicationTranslationSyncService {
       return [];
     }
 
+    const actions = await this.persistTranslations({
+      applicationRegistrationId,
+      translations,
+    });
+
+    if (actions.length > 0) {
+      void this.applicationTranslationNotificationService.notifyCatalogUpdated(
+        applicationRegistrationId,
+      );
+    }
+    return actions;
+  }
+
+  private async persistTranslations({
+    applicationRegistrationId,
+    translations,
+  }: {
+    applicationRegistrationId: string;
+    translations: TranslationsManifest;
+  }): Promise<ApplicationTranslationSyncAction[]> {
     try {
       return await this.applicationTranslationRepository.manager.transaction(
         async (manager) => {

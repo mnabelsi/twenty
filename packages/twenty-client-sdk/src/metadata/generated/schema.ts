@@ -2734,6 +2734,7 @@ export interface Query {
     applicationCoreGraphqlSchema: Scalars['String']
     applicationRegistrationTarballUrl?: Scalars['String']
     applicationSdkClientChecksums?: SdkClientChecksums
+    applicationTranslationCatalog: Scalars['JSON']
     barChartData: BarChartData
     billingPortalSession: BillingSession
     callRecordingIdForCalendarEvent?: Scalars['UUID']
@@ -6987,6 +6988,7 @@ export interface QueryGenqlSelection{
     applicationCoreGraphqlSchema?: { __args: {applicationUniversalIdentifier: Scalars['String']} }
     applicationRegistrationTarballUrl?: { __args: {id: Scalars['String']} }
     applicationSdkClientChecksums?: (SdkClientChecksumsGenqlSelection & { __args: {applicationId: Scalars['UUID']} })
+    applicationTranslationCatalog?: { __args: {applicationId: Scalars['UUID'], locale: Scalars['String']} }
     barChartData?: (BarChartDataGenqlSelection & { __args: {input: BarChartDataInput} })
     billingPortalSession?: (BillingSessionGenqlSelection & { __args?: {forPaymentMethodUpdate?: (Scalars['Boolean'] | null), returnUrlPath?: (Scalars['String'] | null)} })
     callRecordingIdForCalendarEvent?: { __args: {calendarEventId: Scalars['UUID']} }

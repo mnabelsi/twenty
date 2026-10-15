@@ -1,8 +1,18 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { type APP_LOCALES } from 'twenty-shared/translations';
+import {
+  SOURCE_LOCALE,
+  type AppLocale,
+  type APP_LOCALES,
+} from 'twenty-shared/translations';
 import { Repository } from 'typeorm';
+import { v4 as uuidv4 } from 'uuid';
+import { isDefined } from 'twenty-shared/utils';
+
+import { InjectCacheStorage } from 'src/engine/core-modules/cache-storage/decorators/cache-storage.decorator';
+import { CacheStorageService } from 'src/engine/core-modules/cache-storage/services/cache-storage.service';
+import { CacheStorageNamespace } from 'src/engine/core-modules/cache-storage/types/cache-storage-namespace.enum';
 
 import { ApplicationTranslationEntity } from 'src/engine/core-modules/application/application-translation/application-translation.entity';
 import { PromiseMemoizer } from 'src/engine/twenty-orm/storage/promise-memoizer.storage';
@@ -26,7 +36,23 @@ export class ApplicationTranslationCacheService {
     // eslint-disable-next-line twenty/prefer-workspace-scoped-repository
     @InjectRepository(ApplicationTranslationEntity)
     private readonly applicationTranslationRepository: Repository<ApplicationTranslationEntity>,
+    @InjectCacheStorage(CacheStorageNamespace.ModuleApplications)
+    private readonly cacheStorageService: CacheStorageService,
   ) {}
+
+  async getCurrentCatalog({
+    applicationRegistrationId,
+    locale,
+  }: {
+    applicationRegistrationId: string;
+    locale: AppLocale;
+  }): Promise<Record<string, string>> {
+    if (locale === SOURCE_LOCALE) {
+      return EMPTY_CATALOG;
+    }
+
+    return this.getCatalog({ applicationRegistrationId, locale });
+  }
 
   async getCatalog({
     applicationRegistrationId,
@@ -45,16 +71,50 @@ export class ApplicationTranslationCacheService {
   async getCatalogsByLocale(
     applicationRegistrationId: string,
   ): Promise<ApplicationCatalogsByLocale> {
+    const generationKey = `${this.getCacheKey(applicationRegistrationId)}:generation`;
+    const cachedGeneration =
+      await this.cacheStorageService.get<string>(generationKey);
+    const generation = cachedGeneration ?? uuidv4();
+    if (!isDefined(cachedGeneration)) {
+      const initialized = await this.cacheStorageService.setIfAbsent(
+        generationKey,
+        generation,
+        0,
+      );
+      if (!initialized) {
+        return this.getCatalogsByLocale(applicationRegistrationId);
+      }
+    }
+    const cacheKey: CacheKey = `${this.getCacheKey(applicationRegistrationId)}:${generation}`;
     const catalogsByLocale =
       await this.catalogsMemoizer.memoizePromiseAndExecute(
-        this.getCacheKey(applicationRegistrationId),
-        () => this.loadCatalogsByLocale(applicationRegistrationId),
+        cacheKey,
+        async () => {
+          const cachedCatalogs =
+            await this.cacheStorageService.get<ApplicationCatalogsByLocale>(
+              cacheKey,
+            );
+          if (isDefined(cachedCatalogs)) {
+            return cachedCatalogs;
+          }
+          const catalogs = await this.loadCatalogsByLocale(
+            applicationRegistrationId,
+          );
+          await this.cacheStorageService.set(cacheKey, catalogs, CACHE_TTL_MS);
+          return catalogs;
+        },
       );
 
     return catalogsByLocale ?? {};
   }
 
   async invalidate(applicationRegistrationId: string): Promise<void> {
+    // A read started before commit must never populate the next generation.
+    await this.cacheStorageService.set(
+      `${this.getCacheKey(applicationRegistrationId)}:generation`,
+      uuidv4(),
+      0,
+    );
     await this.catalogsMemoizer.clearKeys(
       this.getCacheKey(applicationRegistrationId),
     );

@@ -9817,6 +9817,19 @@ export default {
                     ]
                 }
             ],
+            "applicationTranslationCatalog": [
+                289,
+                {
+                    "applicationId": [
+                        493,
+                        "UUID!"
+                    ],
+                    "locale": [
+                        1,
+                        "String!"
+                    ]
+                }
+            ],
             "barChartData": [
                 75,
                 {

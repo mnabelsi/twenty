@@ -17,10 +17,13 @@ import { type ObjectRecordFilter } from 'src/engine/api/graphql/workspace-query-
 import { type FlatEntityMaps } from 'src/engine/metadata-modules/flat-entity/types/flat-entity-maps.type';
 import { findFlatEntityByIdInFlatEntityMaps } from 'src/engine/metadata-modules/flat-entity/utils/find-flat-entity-by-id-in-flat-entity-maps.util';
 import { type FlatFieldMetadata } from 'src/engine/metadata-modules/flat-field-metadata/types/flat-field-metadata.type';
+import { addMorphRelationsToMorphRelationHeadsForRecordFilters } from 'src/engine/metadata-modules/flat-field-metadata/utils/add-morph-relations-to-morph-relation-heads-for-record-filters.util';
+import { type FlatObjectMetadata } from 'src/engine/metadata-modules/flat-object-metadata/types/flat-object-metadata.type';
 
 type ConvertChartFilterToGqlOperationFilterParams = {
   filter: ChartFilter | undefined;
   flatFieldMetadataMaps: FlatEntityMaps<FlatFieldMetadata>;
+  flatObjectMetadataMaps: FlatEntityMaps<FlatObjectMetadata>;
   userTimezone: string;
   currentWorkspaceMemberId?: string;
 };
@@ -28,6 +31,7 @@ type ConvertChartFilterToGqlOperationFilterParams = {
 export const convertChartFilterToGqlOperationFilter = ({
   filter,
   flatFieldMetadataMaps,
+  flatObjectMetadataMaps,
   userTimezone,
   currentWorkspaceMemberId,
 }: ConvertChartFilterToGqlOperationFilterParams): ObjectRecordFilter => {
@@ -76,9 +80,11 @@ export const convertChartFilterToGqlOperationFilter = ({
     }));
 
   return computeRecordGqlOperationFilter({
-    fieldMetadataItems: Object.values(
-      flatFieldMetadataMaps.byUniversalIdentifier,
-    ).filter(isDefined),
+    fieldMetadataItems: addMorphRelationsToMorphRelationHeadsForRecordFilters({
+      flatFieldMetadataMaps,
+      flatObjectMetadataMaps,
+      recordFilters: convertedRecordFilters,
+    }),
     recordFilters: convertedRecordFilters,
     recordFilterGroups: convertedRecordFilterGroups,
     filterValueDependencies: {

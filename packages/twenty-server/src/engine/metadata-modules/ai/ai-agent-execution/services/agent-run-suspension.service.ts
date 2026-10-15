@@ -10,12 +10,16 @@ import { MessageQueue } from 'src/engine/core-modules/message-queue/message-queu
 import { MessageQueueService } from 'src/engine/core-modules/message-queue/services/message-queue.service';
 import { PendingWakeUpEntity } from 'src/engine/core-modules/pending-wake-up/entities/pending-wake-up.entity';
 import { PendingWakeUpService } from 'src/engine/core-modules/pending-wake-up/services/pending-wake-up.service';
+import { AGENT_RUN_OUTCOME_DELIVERY_MAX_ATTEMPTS } from 'src/engine/metadata-modules/ai/ai-agent-execution/constants/agent-run-outcome-delivery-max-attempts.const';
+import { AGENT_RUN_OUTCOME_DELIVERY_RETRY_DELAY_MS } from 'src/engine/metadata-modules/ai/ai-agent-execution/constants/agent-run-outcome-delivery-retry-delay-ms.const';
 import { CONTINUE_AGENT_RUN_JOB_NAME } from 'src/engine/metadata-modules/ai/ai-agent-execution/constants/continue-agent-run-job-name.constant';
+import { DELIVER_AGENT_RUN_OUTCOME_JOB_NAME } from 'src/engine/metadata-modules/ai/ai-agent-execution/constants/deliver-agent-run-outcome-job-name.constant';
 import { AGENT_WAIT_TOOL_NAMES } from 'src/engine/metadata-modules/ai/ai-agent-execution/pausing-tools/constants/agent-wait-tool-names.constant';
 import { buildWaitOutcomeToolOutput } from 'src/engine/metadata-modules/ai/ai-agent-execution/pausing-tools/wait-tools/build-wait-outcome-tool-output.util';
 import { AgentRunCallerHandlerRegistryService } from 'src/engine/metadata-modules/ai/ai-agent-execution/services/agent-run-caller-handler-registry.service';
 import { type AgentRunCaller } from 'src/engine/metadata-modules/ai/ai-agent-execution/types/agent-run-caller.type';
 import { type AgentRunCallerOutcome } from 'src/engine/metadata-modules/ai/ai-agent-execution/types/agent-run-caller-outcome.type';
+import { type AgentRunOutcomeDelivery } from 'src/engine/metadata-modules/ai/ai-agent-execution/types/agent-run-outcome-delivery.type';
 import { type AgentRunSuspension } from 'src/engine/metadata-modules/ai/ai-agent-execution/types/agent-run-suspension.type';
 import { type ContinueAgentRunJobData } from 'src/engine/metadata-modules/ai/ai-agent-execution/types/continue-agent-run-job-data.type';
 import { AgentChatThreadLifecycleService } from 'src/engine/metadata-modules/ai/ai-chat/services/agent-chat-thread-lifecycle.service';
@@ -142,9 +146,61 @@ export class AgentRunSuspensionService {
   }): Promise<void> {
     await this.closeAwaitedCalls({ workspaceId, threadId, isAwaitingAnswer });
 
-    await this.callerHandlerRegistry
-      .getHandlerOrThrow(caller.type)
-      .onOutcome?.({ workspaceId, caller, threadId, outcome, summary });
+    await this.deliverOutcome({
+      workspaceId,
+      caller,
+      threadId,
+      outcome,
+      summary: summary ?? null,
+    });
+  }
+
+  // a workflow step is marked pending only after its executor returns, so an outcome that comes sooner is delivered later
+  async deliverOutcome(delivery: AgentRunOutcomeDelivery): Promise<void> {
+    const { workspaceId, caller, attempt = 0 } = delivery;
+    const handler = this.callerHandlerRegistry.getHandlerOrThrow(caller.type);
+
+    if (!isDefined(handler.onOutcome)) {
+      return;
+    }
+
+    try {
+      const waitingState = await handler.getWaitingState({
+        workspaceId,
+        caller,
+      });
+
+      if (waitingState === 'GONE') {
+        await handler.onCallerGone?.(delivery);
+
+        return;
+      }
+
+      if (waitingState === 'WAITING') {
+        await handler.onOutcome(delivery);
+
+        return;
+      }
+    } catch (error) {
+      // the run already ended, so a failed delivery is tried again rather than lost with the job
+      this.logger.warn(
+        `Could not deliver the outcome of the run in thread ${delivery.threadId} of workspace ${workspaceId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    if (attempt + 1 >= AGENT_RUN_OUTCOME_DELIVERY_MAX_ATTEMPTS) {
+      this.logger.error(
+        `Dropped the outcome of the run in thread ${delivery.threadId} of workspace ${workspaceId}: its ${caller.type} caller never took it`,
+      );
+
+      return;
+    }
+
+    await this.messageQueueService.add<AgentRunOutcomeDelivery>(
+      DELIVER_AGENT_RUN_OUTCOME_JOB_NAME,
+      { ...delivery, attempt: attempt + 1 },
+      { delay: AGENT_RUN_OUTCOME_DELIVERY_RETRY_DELAY_MS },
+    );
   }
 
   // A caller that stops waiting drops its suspended runs, such as every step of a run that ended

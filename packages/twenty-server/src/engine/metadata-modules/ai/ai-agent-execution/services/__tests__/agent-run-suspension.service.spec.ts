@@ -50,6 +50,9 @@ const buildService = ({
       ),
   };
   const onOutcome = jest.fn().mockResolvedValue(undefined);
+  const onCallerGone = jest.fn().mockResolvedValue(undefined);
+  const getWaitingState = jest.fn().mockResolvedValue('WAITING');
+  const messageQueueService = { add: jest.fn().mockResolvedValue(undefined) };
 
   const service = new AgentRunSuspensionService(
     wakeUpRepository as never,
@@ -58,8 +61,10 @@ const buildService = ({
     threadLifecycleService as never,
     turnRecorderService as never,
     pendingWakeUpService as never,
-    { getHandlerOrThrow: () => ({ onOutcome }) } as never,
-    {} as never,
+    {
+      getHandlerOrThrow: () => ({ onOutcome, onCallerGone, getWaitingState }),
+    } as never,
+    messageQueueService as never,
   );
 
   return {
@@ -69,6 +74,9 @@ const buildService = ({
     turnRecorderService,
     pendingWakeUpService,
     onOutcome,
+    onCallerGone,
+    getWaitingState,
+    messageQueueService,
   };
 };
 
@@ -271,6 +279,66 @@ describe('AgentRunSuspensionService', () => {
         outcome: { status: 'FAILED', error: 'boom' },
         summary,
       });
+    });
+  });
+
+  describe('deliverOutcome', () => {
+    const DELIVERY = {
+      workspaceId: 'workspace-id',
+      caller: CALLER,
+      threadId: 'thread-id',
+      outcome: { status: 'COMPLETED' as const, result: {} },
+      summary: null,
+    };
+
+    it('delivers the outcome again later to a caller not waiting yet', async () => {
+      const { service, onOutcome, getWaitingState, messageQueueService } =
+        buildService();
+
+      getWaitingState.mockResolvedValue('NOT_READY');
+
+      await service.deliverOutcome({ ...DELIVERY, attempt: 3 });
+
+      expect(onOutcome).not.toHaveBeenCalled();
+      expect(messageQueueService.add).toHaveBeenCalledWith(
+        'DeliverAgentRunOutcomeJob',
+        { ...DELIVERY, attempt: 4 },
+        { delay: 1_000 },
+      );
+    });
+
+    it('tries a delivery again when the caller cannot be read', async () => {
+      const { service, onOutcome, getWaitingState, messageQueueService } =
+        buildService();
+
+      getWaitingState.mockRejectedValue(new Error('database unavailable'));
+
+      await service.deliverOutcome(DELIVERY);
+
+      expect(onOutcome).not.toHaveBeenCalled();
+      expect(messageQueueService.add).toHaveBeenCalledWith(
+        'DeliverAgentRunOutcomeJob',
+        { ...DELIVERY, attempt: 1 },
+        { delay: 1_000 },
+      );
+    });
+
+    it('hands the outcome of a caller that stopped waiting to what may still wait on the run', async () => {
+      const {
+        service,
+        onOutcome,
+        onCallerGone,
+        getWaitingState,
+        messageQueueService,
+      } = buildService();
+
+      getWaitingState.mockResolvedValue('GONE');
+
+      await service.deliverOutcome(DELIVERY);
+
+      expect(onOutcome).not.toHaveBeenCalled();
+      expect(onCallerGone).toHaveBeenCalledWith(DELIVERY);
+      expect(messageQueueService.add).not.toHaveBeenCalled();
     });
   });
 });

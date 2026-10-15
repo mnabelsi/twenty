@@ -7,6 +7,7 @@ import {
   ArrayMaxSize,
   ArrayNotEmpty,
   IsArray,
+  IsBoolean,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -72,4 +73,13 @@ export class RunAgentInputDTO {
   @Type(() => RunAgentThreadInputDTO)
   @Field(() => RunAgentThreadInputDTO, { nullable: true })
   thread?: RunAgentThreadInputDTO;
+
+  @IsOptional()
+  @IsBoolean()
+  @Field({
+    nullable: true,
+    description:
+      'Wait for the run to complete, fail or pause (default). False returns as soon as the run starts, with status RUNNING.',
+  })
+  waitForCompletion?: boolean;
 }

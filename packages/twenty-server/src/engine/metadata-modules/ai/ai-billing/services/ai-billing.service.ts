@@ -9,10 +9,12 @@ import { UsageRecorderService } from 'src/engine/core-modules/usage/services/usa
 import { type RecordUsageInput } from 'src/engine/core-modules/usage/types/record-usage-input.type';
 import { type UsageSpenders } from 'src/engine/core-modules/usage/types/usage-spenders.type';
 import { NATIVE_WEB_SEARCH_COST_PER_CALL_DOLLARS } from 'src/engine/metadata-modules/ai/ai-billing/constants/native-web-search-cost-per-call-dollars';
+import { type BillableStep } from 'src/engine/metadata-modules/ai/ai-billing/types/billable-step.type';
 import { type BillingTokenUsage } from 'src/engine/metadata-modules/ai/ai-billing/types/billing-token-usage.type';
 import { computeAgentTurnUsageFromSteps } from 'src/engine/metadata-modules/ai/ai-billing/utils/compute-agent-turn-usage-from-steps.util';
 import { computeStepCostBreakdown } from 'src/engine/metadata-modules/ai/ai-billing/utils/compute-step-cost-breakdown.util';
 import { convertDollarsToCreditsMicro } from 'src/engine/metadata-modules/ai/ai-billing/utils/convert-dollars-to-credits-micro.util';
+import { countNativeWebSearchCallsFromSteps } from 'src/engine/metadata-modules/ai/ai-billing/utils/count-native-web-search-calls-from-steps.util';
 import { extractCacheCreationTokens } from 'src/engine/metadata-modules/ai/ai-billing/utils/extract-cache-creation-tokens.util';
 import { AiModelRegistryService } from 'src/engine/metadata-modules/ai/ai-models/services/ai-model-registry.service';
 import { type AiModelCostConfig } from 'src/engine/metadata-modules/ai/ai-models/types/ai-model-cost-config.type';
@@ -60,13 +62,7 @@ export class AiBillingService {
     );
   }
 
-  calculateStepsCost(
-    modelId: ModelId,
-    steps: {
-      usage: BillingTokenUsage;
-      providerMetadata?: Record<string, Record<string, unknown> | undefined>;
-    }[],
-  ): number {
+  calculateStepsCost(modelId: ModelId, steps: BillableStep[]): number {
     const model = this.getCostConfig(modelId);
 
     return steps.reduce(
@@ -84,10 +80,7 @@ export class AiBillingService {
 
   calculateStepsTurnUsage(
     modelId: ModelId,
-    steps: {
-      usage: BillingTokenUsage;
-      providerMetadata?: Record<string, Record<string, unknown> | undefined>;
-    }[],
+    steps: BillableStep[],
   ): AgentTurnUsage {
     return computeAgentTurnUsageFromSteps(this.getCostConfig(modelId), steps);
   }
@@ -213,27 +206,41 @@ export class AiBillingService {
     });
   }
 
-  async emitAiTokenUsageEvent({
-    workspaceId,
-    creditsUsedMicro,
-    totalTokens,
+  async recordStepsUsage({
     modelId,
+    steps,
+    workspaceId,
     operationType,
     spenders,
   }: {
-    workspaceId: string;
-    creditsUsedMicro: number;
-    totalTokens: number;
     modelId: ModelId;
+    steps: (BillableStep & { toolCalls: { toolName: string }[] })[];
+    workspaceId: string;
     operationType: UsageOperationType;
     spenders: UsageSpenders;
   }): Promise<void> {
-    await this.usageRecorderService.record(workspaceId, [
-      this.buildAiTokenUsageEvent({
-        creditsUsedMicro,
-        totalTokens,
-        modelId,
-        operationType,
+    const totalTokens = steps.reduce(
+      (total, { usage }) =>
+        total + (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
+      0,
+    );
+
+    // a failed token record must not also skip charging for searches already made
+    await Promise.all([
+      this.usageRecorderService.record(workspaceId, [
+        this.buildAiTokenUsageEvent({
+          creditsUsedMicro: convertDollarsToCreditsMicro(
+            this.calculateStepsCost(modelId, steps),
+          ),
+          totalTokens,
+          modelId,
+          operationType,
+          spenders,
+        }),
+      ]),
+      this.billNativeWebSearchUsage({
+        nativeWebSearchCallCount: countNativeWebSearchCallsFromSteps(steps),
+        workspaceId,
         spenders,
       }),
     ]);

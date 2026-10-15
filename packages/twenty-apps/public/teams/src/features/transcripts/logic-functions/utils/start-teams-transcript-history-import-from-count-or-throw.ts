@@ -1,8 +1,10 @@
 import { kv } from 'twenty-sdk/logic-function';
 
+import { TEAMS_TRANSCRIPT_HISTORY_MAX_IMPORT_COUNT } from 'src/features/transcripts/constants/teams-transcript-history-max-import-count';
 import { type TeamsTranscriptHistoryRouteResult } from 'src/features/transcripts/logic-functions/types/teams-transcript-history-route-result.type';
 import { type TeamsTranscriptHistoryState } from 'src/features/transcripts/logic-functions/types/teams-transcript-history-state.type';
 import { buildTeamsTranscriptHistoryKvKey } from 'src/features/transcripts/logic-functions/utils/build-teams-transcript-history-kv-key';
+import { getTeamsTranscriptHistoryToImportCount } from 'src/features/transcripts/utils/get-teams-transcript-history-to-import-count';
 import { scheduleTeamsTranscriptHistoryRunOrThrow } from 'src/features/transcripts/logic-functions/utils/schedule-teams-transcript-history-run-or-throw';
 
 export const startTeamsTranscriptHistoryImportFromCountOrThrow = async ({
@@ -18,6 +20,13 @@ export const startTeamsTranscriptHistoryImportFromCountOrThrow = async ({
 
   if (countedState?.runId !== runId || countedState.phase !== 'counted') {
     return { success: false, errorCode: 'count-required' };
+  }
+
+  if (
+    getTeamsTranscriptHistoryToImportCount(countedState) >
+    TEAMS_TRANSCRIPT_HISTORY_MAX_IMPORT_COUNT
+  ) {
+    return { success: false, errorCode: 'import-limit-exceeded' };
   }
 
   const state: TeamsTranscriptHistoryState & { phase: 'importing' } = {

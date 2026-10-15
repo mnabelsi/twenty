@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { TEAMS_TRANSCRIPT_HISTORY_MAX_IMPORT_COUNT } from 'src/features/transcripts/constants/teams-transcript-history-max-import-count';
 import { TEAMS_TRANSCRIPT_HISTORY_MAX_PAGES } from 'src/features/transcripts/logic-functions/constants/teams-transcript-history-max-pages';
 import { getTeamsTranscriptHistoryPageTransition } from 'src/features/transcripts/logic-functions/utils/get-teams-transcript-history-page-transition';
 
@@ -49,6 +50,7 @@ describe('getTeamsTranscriptHistoryPageTransition', () => {
         state: STATE,
         job: JOB,
         phase: 'counting',
+        isImportLimitReachedOnPage: false,
         pageCounts: {
           ...EMPTY_PAGE_COUNTS,
           transcriptCount: 5,
@@ -82,6 +84,7 @@ describe('getTeamsTranscriptHistoryPageTransition', () => {
         state: STATE,
         job: { ...JOB, nextPageUrl: NEXT_PAGE_URL },
         phase: 'counting',
+        isImportLimitReachedOnPage: false,
         pageCounts: EMPTY_PAGE_COUNTS,
         now: NOW,
       }),
@@ -107,6 +110,7 @@ describe('getTeamsTranscriptHistoryPageTransition', () => {
       state: STATE,
       job: { ...JOB, chunkIndex: 2 },
       phase: 'counting',
+      isImportLimitReachedOnPage: false,
       pageCounts: EMPTY_PAGE_COUNTS,
       now: NOW,
     });
@@ -123,6 +127,7 @@ describe('getTeamsTranscriptHistoryPageTransition', () => {
       state: { ...STATE, phase: 'importing' },
       job: { ...JOB, chunkIndex: 2 },
       phase: 'importing',
+      isImportLimitReachedOnPage: false,
       pageCounts: {
         ...EMPTY_PAGE_COUNTS,
         importedCount: 4,
@@ -143,11 +148,104 @@ describe('getTeamsTranscriptHistoryPageTransition', () => {
     });
   });
 
+  it('should finish the import normally when its last page fills the import limit exactly', () => {
+    const transition = getTeamsTranscriptHistoryPageTransition({
+      state: {
+        ...STATE,
+        phase: 'importing',
+        importedCount: TEAMS_TRANSCRIPT_HISTORY_MAX_IMPORT_COUNT - 3,
+      },
+      job: { ...JOB, chunkIndex: 2 },
+      phase: 'importing',
+      isImportLimitReachedOnPage: false,
+      pageCounts: { ...EMPTY_PAGE_COUNTS, importedCount: 3 },
+      now: NOW,
+    });
+
+    expect(transition.nextJob).toBeUndefined();
+    expect(transition.state).toMatchObject({
+      phase: 'imported',
+      importedCount: TEAMS_TRANSCRIPT_HISTORY_MAX_IMPORT_COUNT,
+      checkedThrough: '2026-07-01T00:00:00.000Z',
+    });
+    expect(transition.state.isImportLimitReached).toBeUndefined();
+  });
+
+  it('should stop at the import limit when the last page still had transcripts to import', () => {
+    const transition = getTeamsTranscriptHistoryPageTransition({
+      state: {
+        ...STATE,
+        phase: 'importing',
+        importedCount: TEAMS_TRANSCRIPT_HISTORY_MAX_IMPORT_COUNT - 3,
+      },
+      job: { ...JOB, chunkIndex: 2 },
+      phase: 'importing',
+      isImportLimitReachedOnPage: true,
+      pageCounts: { ...EMPTY_PAGE_COUNTS, importedCount: 3 },
+      now: NOW,
+    });
+
+    expect(transition.state).toMatchObject({
+      phase: 'imported',
+      isImportLimitReached: true,
+      checkedThrough: STATE.checkedThrough,
+    });
+  });
+
+  it('should end the uncounted import on connect at the import limit while older pages remain, without marking the page as checked', () => {
+    const transition = getTeamsTranscriptHistoryPageTransition({
+      state: {
+        ...STATE,
+        phase: 'importing',
+        transcriptCount: 0,
+        alreadyImportedCount: 0,
+        deletedCount: 0,
+        importedCount: TEAMS_TRANSCRIPT_HISTORY_MAX_IMPORT_COUNT - 3,
+      },
+      job: { ...JOB, nextPageUrl: NEXT_PAGE_URL },
+      phase: 'importing',
+      isImportLimitReachedOnPage: false,
+      pageCounts: { ...EMPTY_PAGE_COUNTS, importedCount: 3 },
+      now: NOW,
+    });
+
+    expect(transition.nextJob).toBeUndefined();
+    expect(transition.state).toMatchObject({
+      phase: 'imported',
+      isImportLimitReached: true,
+      importedCount: TEAMS_TRANSCRIPT_HISTORY_MAX_IMPORT_COUNT,
+      checkedThrough: STATE.checkedThrough,
+    });
+  });
+
+  it('should finish a counted import at the import limit without asking to count again, as everything counted is in', () => {
+    const transition = getTeamsTranscriptHistoryPageTransition({
+      state: {
+        ...STATE,
+        phase: 'importing',
+        transcriptCount: TEAMS_TRANSCRIPT_HISTORY_MAX_IMPORT_COUNT,
+        alreadyImportedCount: 0,
+        deletedCount: 0,
+        importedCount: TEAMS_TRANSCRIPT_HISTORY_MAX_IMPORT_COUNT - 3,
+      },
+      job: { ...JOB, nextPageUrl: NEXT_PAGE_URL },
+      phase: 'importing',
+      isImportLimitReachedOnPage: false,
+      pageCounts: { ...EMPTY_PAGE_COUNTS, importedCount: 3 },
+      now: NOW,
+    });
+
+    expect(transition.nextJob).toBeUndefined();
+    expect(transition.state.phase).toBe('imported');
+    expect(transition.state.isImportLimitReached).toBeUndefined();
+  });
+
   it('should fail the run instead of completing it at the page limit', () => {
     const transition = getTeamsTranscriptHistoryPageTransition({
       state: { ...STATE, pageCount: TEAMS_TRANSCRIPT_HISTORY_MAX_PAGES - 1 },
       job: { ...JOB, pageIndex: TEAMS_TRANSCRIPT_HISTORY_MAX_PAGES - 1 },
       phase: 'counting',
+      isImportLimitReachedOnPage: false,
       pageCounts: EMPTY_PAGE_COUNTS,
       nextPageUrl: NEXT_PAGE_URL,
       now: NOW,

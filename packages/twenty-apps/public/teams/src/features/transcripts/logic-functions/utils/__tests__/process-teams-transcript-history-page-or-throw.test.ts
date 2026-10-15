@@ -1,6 +1,7 @@
 import { AppConnectionAuthFailedError } from 'twenty-sdk/logic-function';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { TEAMS_TRANSCRIPT_HISTORY_MAX_IMPORT_COUNT } from 'src/features/transcripts/constants/teams-transcript-history-max-import-count';
 import { TRANSCRIPTS_ENABLED_APPLICATION_VARIABLE_KEY } from 'src/features/transcripts/constants/transcripts-enabled-application-variable-key';
 import { TEAMS_COUNT_TRANSCRIPT_HISTORY_UNIVERSAL_IDENTIFIER } from 'src/features/transcripts/constants/universal-identifiers';
 import { GraphRequestError } from 'src/features/transcripts/logic-functions/types/graph-request-error';
@@ -224,6 +225,52 @@ describe('processTeamsTranscriptHistoryPageOrThrow', () => {
       pageCount: 3,
     });
     expect(enqueueJobsMock).not.toHaveBeenCalled();
+  });
+
+  it('should give the page what is left of the import limit and end the run once it is reached', async () => {
+    kvStore.set(STATE_KV_KEY, {
+      ...STATE,
+      importedCount: TEAMS_TRANSCRIPT_HISTORY_MAX_IMPORT_COUNT - 5,
+    });
+    importTeamsTranscriptHistoryPageMock.mockResolvedValue({
+      ...PAGE_COUNTS,
+      importedCount: 5,
+    });
+
+    await processImportPage(JOB);
+
+    expect(importTeamsTranscriptHistoryPageMock).toHaveBeenCalledWith(
+      expect.objectContaining({ importLimit: 5 }),
+    );
+    expect(kvStore.get(STATE_KV_KEY)).toMatchObject({
+      phase: 'imported',
+      importedCount: TEAMS_TRANSCRIPT_HISTORY_MAX_IMPORT_COUNT,
+      isImportLimitReached: true,
+    });
+    expect(enqueueJobsMock).not.toHaveBeenCalled();
+  });
+
+  it('should finish the run normally when its last page fills the import limit exactly', async () => {
+    kvStore.set(STATE_KV_KEY, {
+      ...STATE,
+      importedCount: TEAMS_TRANSCRIPT_HISTORY_MAX_IMPORT_COUNT - 5,
+    });
+    listTeamsCalendarPageMock.mockResolvedValue({ occurrences: [] });
+    importTeamsTranscriptHistoryPageMock.mockResolvedValue({
+      ...PAGE_COUNTS,
+      importedCount: 5,
+      isImportLimitReached: false,
+    });
+
+    await processImportPage(JOB);
+
+    const state = kvStore.get(STATE_KV_KEY);
+
+    expect(state).toMatchObject({
+      phase: 'imported',
+      importedCount: TEAMS_TRANSCRIPT_HISTORY_MAX_IMPORT_COUNT,
+    });
+    expect(state).not.toHaveProperty('isImportLimitReached');
   });
 
   it('should count the last page of a count without importing it', async () => {

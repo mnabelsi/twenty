@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { TEAMS_TRANSCRIPT_HISTORY_MAX_IMPORT_COUNT } from 'src/features/transcripts/constants/teams-transcript-history-max-import-count';
 import { GraphRequestError } from 'src/features/transcripts/logic-functions/types/graph-request-error';
 import { computeCallRecordingIdForTeamsTranscript } from 'src/features/transcripts/logic-functions/utils/compute-call-recording-id-for-teams-transcript';
 import { importTeamsTranscriptHistoryPageOrThrow } from 'src/features/transcripts/logic-functions/utils/import-teams-transcript-history-page-or-throw';
@@ -146,7 +147,8 @@ const buildRow = (
 
 const toPageCounts = (
   counts: Partial<
-    Record<'importedCount' | 'skippedCount' | 'unavailableCount', number>
+    Record<'importedCount' | 'skippedCount' | 'unavailableCount', number> &
+      Record<'isImportLimitReached', boolean>
   >,
 ) => ({
   transcriptCount: 0,
@@ -155,6 +157,7 @@ const toPageCounts = (
   importedCount: 0,
   skippedCount: 0,
   unavailableCount: 0,
+  isImportLimitReached: false,
   ...counts,
 });
 
@@ -180,6 +183,7 @@ describe('importTeamsTranscriptHistoryPageOrThrow', () => {
         coreApiClient,
         transcripts: transcriptIds.map(buildTranscript),
         importedSince: RUN_STARTED_AT,
+        importLimit: TEAMS_TRANSCRIPT_HISTORY_MAX_IMPORT_COUNT,
         isRunActive: async () => true,
       }),
     ).resolves.toEqual(toPageCounts({ importedCount: 2, skippedCount: 2 }));
@@ -213,6 +217,7 @@ describe('importTeamsTranscriptHistoryPageOrThrow', () => {
         coreApiClient,
         transcripts: transcriptIds.map(buildTranscript),
         importedSince: RUN_STARTED_AT,
+        importLimit: TEAMS_TRANSCRIPT_HISTORY_MAX_IMPORT_COUNT,
         isRunActive: async () => true,
       }),
     ).resolves.toEqual(toPageCounts({ importedCount: 1, skippedCount: 1 }));
@@ -235,6 +240,7 @@ describe('importTeamsTranscriptHistoryPageOrThrow', () => {
         coreApiClient,
         transcripts: transcriptIds.map(buildTranscript),
         importedSince: RUN_STARTED_AT,
+        importLimit: TEAMS_TRANSCRIPT_HISTORY_MAX_IMPORT_COUNT,
         isRunActive: async () => true,
       }),
     ).resolves.toEqual(toPageCounts({ importedCount: 2 }));
@@ -263,6 +269,7 @@ describe('importTeamsTranscriptHistoryPageOrThrow', () => {
         coreApiClient,
         transcripts: transcriptIds.map(buildTranscript),
         importedSince: RUN_STARTED_AT,
+        importLimit: TEAMS_TRANSCRIPT_HISTORY_MAX_IMPORT_COUNT,
         isRunActive: async () => true,
       }),
     ).resolves.toEqual(toPageCounts({ importedCount: 1, unavailableCount: 2 }));
@@ -286,6 +293,7 @@ describe('importTeamsTranscriptHistoryPageOrThrow', () => {
         coreApiClient: buildCoreApiClient([]),
         transcripts: [buildTranscript('new')],
         importedSince: RUN_STARTED_AT,
+        importLimit: TEAMS_TRANSCRIPT_HISTORY_MAX_IMPORT_COUNT,
         isRunActive: async () => true,
       }),
     ).rejects.toThrow('503');
@@ -304,11 +312,140 @@ describe('importTeamsTranscriptHistoryPageOrThrow', () => {
         coreApiClient,
         transcripts: transcriptIds.map(buildTranscript),
         importedSince: RUN_STARTED_AT,
+        importLimit: TEAMS_TRANSCRIPT_HISTORY_MAX_IMPORT_COUNT,
         isRunActive: async () => true,
       }),
     ).resolves.toEqual(toPageCounts({ importedCount: 11 }));
     expect(coreApiClient.mutation).toHaveBeenCalledTimes(2);
     expect(coreApiClient.rowsById.size).toBe(11);
+  });
+
+  it('should stop at the import limit without spending it on unavailable transcripts', async () => {
+    const transcriptIds = ['empty', 'new-1', 'new-2', 'new-3'];
+    const coreApiClient = buildCoreApiClient([]);
+
+    downloadMeetingTranscriptContentMock.mockResolvedValueOnce('WEBVTT\n');
+
+    await expect(
+      importTeamsTranscriptHistoryPageOrThrow({
+        accessToken: 'token',
+        coreApiClient,
+        transcripts: transcriptIds.map(buildTranscript),
+        importedSince: RUN_STARTED_AT,
+        importLimit: 2,
+        isRunActive: async () => true,
+      }),
+    ).resolves.toEqual(
+      toPageCounts({
+        importedCount: 2,
+        unavailableCount: 1,
+        isImportLimitReached: true,
+      }),
+    );
+    expect(getWrittenTranscriptIds(coreApiClient, transcriptIds)).toEqual([
+      'new-1',
+      'new-2',
+    ]);
+    expect(downloadMeetingTranscriptContentMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('should count what a failed attempt of the page wrote against the import limit', async () => {
+    const transcriptIds = ['written-by-failed-attempt', 'new-1', 'new-2'];
+    const coreApiClient = buildCoreApiClient([
+      buildRow('written-by-failed-attempt', 'COMPLETED', {
+        createdAt: RUN_STARTED_AT,
+      }),
+    ]);
+
+    await expect(
+      importTeamsTranscriptHistoryPageOrThrow({
+        accessToken: 'token',
+        coreApiClient,
+        transcripts: transcriptIds.map(buildTranscript),
+        importedSince: RUN_STARTED_AT,
+        importLimit: 2,
+        isRunActive: async () => true,
+      }),
+    ).resolves.toEqual(
+      toPageCounts({ importedCount: 2, isImportLimitReached: true }),
+    );
+    expect(getWrittenTranscriptIds(coreApiClient, transcriptIds)).toEqual([
+      'new-1',
+    ]);
+  });
+
+  it('should keep filling the import limit after a recording deleted during its download', async () => {
+    const transcriptIds = Array.from({ length: 12 }, (_, index) =>
+      index === 0 ? 'deleted-during-import' : `new-${index}`,
+    );
+    const coreApiClient = buildCoreApiClient([
+      buildRow('deleted-during-import', 'PROCESSING'),
+    ]);
+
+    downloadMeetingTranscriptContentMock.mockImplementationOnce(async () => {
+      coreApiClient.rowsById.set(
+        computeCallRecordingIdForTeamsTranscript('deleted-during-import'),
+        buildRow('deleted-during-import', 'PROCESSING', {
+          deletedAt: '2026-09-15T00:01:00.000Z',
+        }),
+      );
+
+      return TRANSCRIPT_CONTENT;
+    });
+
+    await expect(
+      importTeamsTranscriptHistoryPageOrThrow({
+        accessToken: 'token',
+        coreApiClient,
+        transcripts: transcriptIds.map(buildTranscript),
+        importedSince: RUN_STARTED_AT,
+        importLimit: 10,
+        isRunActive: async () => true,
+      }),
+    ).resolves.toEqual(
+      toPageCounts({
+        importedCount: 10,
+        skippedCount: 1,
+        isImportLimitReached: true,
+      }),
+    );
+    expect(getWrittenTranscriptIds(coreApiClient, transcriptIds)).toEqual(
+      transcriptIds.slice(1, 11),
+    );
+  });
+
+  it('should import the transcripts after one deleted during its download when the batch fills the import limit', async () => {
+    const transcriptIds = ['deleted-during-import', 'new-1', 'new-2', 'new-3'];
+    const coreApiClient = buildCoreApiClient([
+      buildRow('deleted-during-import', 'PROCESSING'),
+    ]);
+
+    downloadMeetingTranscriptContentMock.mockImplementationOnce(async () => {
+      coreApiClient.rowsById.set(
+        computeCallRecordingIdForTeamsTranscript('deleted-during-import'),
+        buildRow('deleted-during-import', 'PROCESSING', {
+          deletedAt: '2026-09-15T00:01:00.000Z',
+        }),
+      );
+
+      return TRANSCRIPT_CONTENT;
+    });
+
+    await expect(
+      importTeamsTranscriptHistoryPageOrThrow({
+        accessToken: 'token',
+        coreApiClient,
+        transcripts: transcriptIds.map(buildTranscript),
+        importedSince: RUN_STARTED_AT,
+        importLimit: 3,
+        isRunActive: async () => true,
+      }),
+    ).resolves.toEqual(toPageCounts({ importedCount: 3, skippedCount: 1 }));
+    expect(getWrittenTranscriptIds(coreApiClient, transcriptIds)).toEqual([
+      'new-1',
+      'new-2',
+      'new-3',
+    ]);
   });
 
   it('should stop writing once the run is removed', async () => {
@@ -326,6 +463,7 @@ describe('importTeamsTranscriptHistoryPageOrThrow', () => {
           buildTranscript(`new-${index}`),
         ),
         importedSince: RUN_STARTED_AT,
+        importLimit: TEAMS_TRANSCRIPT_HISTORY_MAX_IMPORT_COUNT,
         isRunActive,
       }),
     ).resolves.toEqual(toPageCounts({ importedCount: 10 }));

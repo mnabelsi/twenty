@@ -1,7 +1,9 @@
 import { flattenedFieldMetadataItemsSelector } from '@/object-metadata/states/flattenedFieldMetadataItemsSelector';
 import { useSetAdvancedFilterDropdownStates } from '@/object-record/advanced-filter/hooks/useSetAdvancedFilterDropdownAllRowsStates';
+import { attachUngroupedRecordFiltersToRootRecordFilterGroup } from '@/object-record/record-filter-group/utils/attachUngroupedRecordFiltersToRootRecordFilterGroup';
 import { currentRecordFilterGroupsComponentState } from '@/object-record/record-filter-group/states/currentRecordFilterGroupsComponentState';
 import { currentRecordFiltersComponentState } from '@/object-record/record-filter/states/currentRecordFiltersComponentState';
+import { unresolvedRecordFiltersComponentState } from '@/object-record/record-filter/states/unresolvedRecordFiltersComponentState';
 import { hydrateRecordFiltersFromFieldMetadata } from '@/object-record/record-filter/utils/hydrateRecordFiltersFromFieldMetadata';
 import { hasInitializedChartFiltersComponentState } from '@/side-panel/pages/page-layout/states/hasInitializedChartFiltersComponentState';
 import { type ChartFilters } from '@/side-panel/pages/page-layout/types/ChartFilters';
@@ -29,6 +31,10 @@ export const ChartFiltersSettingsInitializeStateEffect = ({
     currentRecordFilterGroupsComponentState,
   );
 
+  const setUnresolvedRecordFilters = useSetAtomComponentState(
+    unresolvedRecordFiltersComponentState,
+  );
+
   const flattenedFieldMetadataItems = useAtomStateValue(
     flattenedFieldMetadataItemsSelector,
   );
@@ -43,15 +49,21 @@ export const ChartFiltersSettingsInitializeStateEffect = ({
 
   useEffect(() => {
     if (!hasInitializedChartFilters && isDefined(initialChartFilters)) {
-      setCurrentRecordFilters(
-        hydrateRecordFiltersFromFieldMetadata({
+      const { recordFilters: persistedRecordFilters, recordFilterGroups } =
+        attachUngroupedRecordFiltersToRootRecordFilterGroup({
           recordFilters: initialChartFilters.recordFilters ?? [],
+          recordFilterGroups: initialChartFilters.recordFilterGroups ?? [],
+        });
+
+      const { recordFilters, unresolvedRecordFilters } =
+        hydrateRecordFiltersFromFieldMetadata({
+          persistedRecordFilters,
           fieldMetadataItems: flattenedFieldMetadataItems,
-        }),
-      );
-      setCurrentRecordFilterGroups(
-        initialChartFilters.recordFilterGroups ?? [],
-      );
+        });
+
+      setCurrentRecordFilters(recordFilters);
+      setUnresolvedRecordFilters(unresolvedRecordFilters);
+      setCurrentRecordFilterGroups(recordFilterGroups);
 
       setShouldSetAdvancedFilterDropdownStates(true);
       setHasInitializedChartFilters(true);
@@ -59,6 +71,7 @@ export const ChartFiltersSettingsInitializeStateEffect = ({
   }, [
     setCurrentRecordFilters,
     setCurrentRecordFilterGroups,
+    setUnresolvedRecordFilters,
     setHasInitializedChartFilters,
     hasInitializedChartFilters,
     initialChartFilters,

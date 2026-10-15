@@ -5,6 +5,16 @@ export const FIND_ADMIN_APPLICATION_REGISTRATION_STATS = gql`
     findAdminApplicationRegistrationStats(id: $id) {
       activeInstalls
       suspendedInstalls
+      autoUpdateEnabled
+      workspacesNeedingAttention
+      totalCreditsConsumed
+      creditBreakdown {
+        key
+        label
+        operationType
+        isAppDefined
+        creditsConsumed
+      }
       mostInstalledVersion
       versionDistribution {
         version

@@ -11,7 +11,10 @@ import {
   type StepResult,
   type ToolSet,
 } from 'ai';
-import { type RunAgentMessage } from 'twenty-shared/application';
+import {
+  type RunAgentMessage,
+  TWENTY_STANDARD_APPLICATION_UNIVERSAL_IDENTIFIER,
+} from 'twenty-shared/application';
 import {
   ASK_QUESTION_TOOL_NAME,
   AUTO_SELECT_WORKSPACE_DEFAULT_MODEL_ID,
@@ -28,6 +31,8 @@ import {
 } from 'twenty-shared/utils';
 import { type Repository } from 'typeorm';
 
+import { type FlatApplication } from 'src/engine/core-modules/application/types/flat-application.type';
+import { isApplicationAuthContext } from 'src/engine/core-modules/auth/guards/is-application-auth-context.guard';
 import { isUserAuthContext } from 'src/engine/core-modules/auth/guards/is-user-auth-context.guard';
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
 import { TOOL_EXECUTION_DURATION_MS_BUCKET_BOUNDARIES } from 'src/engine/core-modules/metrics/constants/tool-execution-duration-ms-bucket-boundaries.constant';
@@ -109,6 +114,7 @@ type RegistryToolContext = Pick<
   ToolContext,
   | 'workspaceId'
   | 'authContext'
+  | 'application'
   | 'actorContext'
   | 'userId'
   | 'userWorkspaceId'
@@ -159,6 +165,27 @@ export class AgentAsyncExecutorService {
     }
 
     return {};
+  }
+
+  private resolveCallingApplication(
+    authContext?: WorkspaceAuthContext,
+  ): FlatApplication | undefined {
+    const application =
+      isDefined(authContext) && isUserAuthContext(authContext)
+        ? (authContext.application ?? authContext.viaApplication)
+        : isDefined(authContext) && isApplicationAuthContext(authContext)
+          ? authContext.application
+          : undefined;
+
+    if (
+      application?.id === authContext?.workspace.workspaceCustomApplicationId ||
+      application?.universalIdentifier ===
+        TWENTY_STANDARD_APPLICATION_UNIVERSAL_IDENTIFIER
+    ) {
+      return undefined;
+    }
+
+    return application;
   }
 
   // preloading the few granted object schemas saves the model a learn_tools round trip
@@ -232,13 +259,19 @@ export class AgentAsyncExecutorService {
         agentRunRoleIds,
       }),
     };
-    const { workspaceId, userId, userWorkspaceId, rolePermissionConfig } =
-      toolContext;
+    const {
+      workspaceId,
+      userId,
+      userWorkspaceId,
+      rolePermissionConfig,
+      application,
+    } = toolContext;
 
     const fullCatalog = await this.toolRegistry.buildToolIndex(workspaceId, {
       userId,
       userWorkspaceId,
       rolePermissionConfig,
+      application,
     });
 
     const allowedCategories = new Set(
@@ -412,6 +445,7 @@ export class AgentAsyncExecutorService {
             workspaceId: agent.workspaceId,
             agentId: agent.id,
             authContext,
+            application: this.resolveCallingApplication(authContext),
             actorContext,
             ...this.resolveUserIdentity(authContext),
           };

@@ -29,7 +29,10 @@ import { JwtWrapperService } from 'src/engine/core-modules/jwt/services/jwt-wrap
 import { SecureHttpClientService } from 'src/engine/core-modules/secure-http-client/secure-http-client.service';
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
 import { UserEntity } from 'src/engine/core-modules/user/user.entity';
-import { ConnectedAccountEntity } from 'src/engine/metadata-modules/connected-account/entities/connected-account.entity';
+import {
+  ConnectedAccountEntity,
+  type ConnectedAccountVisibility,
+} from 'src/engine/metadata-modules/connected-account/entities/connected-account.entity';
 import { ConnectedAccountTokenEncryptionService } from 'src/engine/metadata-modules/connected-account/services/connected-account-token-encryption.service';
 import { buildConnectedAccountUsableByCallerWhere } from 'src/engine/metadata-modules/connected-account/utils/build-connected-account-usable-by-caller-where.util';
 
@@ -82,34 +85,12 @@ export class ConnectionProviderOAuthFlowService {
 
     assertOAuthProvider(connectionProvider);
 
-    let reconnectTarget: ConnectedAccountEntity | null = null;
-
-    if (isDefined(args.reconnectingConnectedAccountId)) {
-      reconnectTarget = await this.connectedAccountRepository.findOne({
-        where: buildConnectedAccountUsableByCallerWhere({
-          baseWhere: {
-            id: args.reconnectingConnectedAccountId,
-            workspaceId,
-            connectionProviderId: connectionProvider.id,
-          },
-          userWorkspaceId,
-        }),
-      });
-
-      if (!isDefined(reconnectTarget)) {
-        throw new ConnectionProviderException(
-          `Cannot reconnect connectedAccount ${args.reconnectingConnectedAccountId}: not found in this workspace for the requested provider, or not usable by this member.`,
-          ConnectionProviderExceptionCode.FORBIDDEN,
-        );
-      }
-    }
-
-    await this.appConnectionAccessService.validateCallerCanManageConnection({
-      isWorkspaceShared:
-        args.visibility === 'workspace' ||
-        reconnectTarget?.visibility === 'workspace',
+    await this.validateCallerCanManageRequestedConnection({
+      connectionProviderId: connectionProvider.id,
       workspaceId,
       userWorkspaceId,
+      visibility: args.visibility,
+      reconnectingConnectedAccountId: args.reconnectingConnectedAccountId,
     });
 
     const { clientId } =
@@ -167,6 +148,16 @@ export class ConnectionProviderOAuthFlowService {
     });
 
     assertOAuthProvider(provider);
+
+    // The member's role may have changed while they were on the provider's consent screen
+    await this.validateCallerCanManageRequestedConnection({
+      connectionProviderId: provider.id,
+      workspaceId: statePayload.workspaceId,
+      userWorkspaceId: statePayload.userWorkspaceId,
+      visibility: statePayload.visibility,
+      reconnectingConnectedAccountId:
+        statePayload.reconnectingConnectedAccountId,
+    });
 
     const { clientId, clientSecret } =
       await this.oauthProviderService.getClientCredentials(provider);
@@ -228,6 +219,82 @@ export class ConnectionProviderOAuthFlowService {
       applicationId: provider.applicationId,
       redirectLocation: statePayload.redirectLocation,
     };
+  }
+
+  private async validateCallerCanManageRequestedConnection({
+    connectionProviderId,
+    workspaceId,
+    userWorkspaceId,
+    visibility,
+    reconnectingConnectedAccountId,
+  }: {
+    connectionProviderId: string;
+    workspaceId: string;
+    userWorkspaceId: string;
+    visibility: ConnectedAccountVisibility;
+    reconnectingConnectedAccountId: string | null;
+  }): Promise<void> {
+    const reconnectTarget = await this.findReconnectTargetOrThrow({
+      connectionProviderId,
+      workspaceId,
+      userWorkspaceId,
+      reconnectingConnectedAccountId,
+    });
+
+    if (
+      visibility === 'workspace' ||
+      reconnectTarget?.visibility === 'workspace'
+    ) {
+      await this.appConnectionAccessService.validateCallerCanManageConnection({
+        isWorkspaceShared: true,
+        workspaceId,
+        userWorkspaceId,
+      });
+    }
+
+    if (visibility === 'user') {
+      await this.appConnectionAccessService.validateCallerCanManageConnection({
+        isWorkspaceShared: false,
+        workspaceId,
+        userWorkspaceId,
+      });
+    }
+  }
+
+  private async findReconnectTargetOrThrow({
+    connectionProviderId,
+    workspaceId,
+    userWorkspaceId,
+    reconnectingConnectedAccountId,
+  }: {
+    connectionProviderId: string;
+    workspaceId: string;
+    userWorkspaceId: string;
+    reconnectingConnectedAccountId: string | null;
+  }): Promise<ConnectedAccountEntity | null> {
+    if (!isDefined(reconnectingConnectedAccountId)) {
+      return null;
+    }
+
+    const reconnectTarget = await this.connectedAccountRepository.findOne({
+      where: buildConnectedAccountUsableByCallerWhere({
+        baseWhere: {
+          id: reconnectingConnectedAccountId,
+          workspaceId,
+          connectionProviderId,
+        },
+        userWorkspaceId,
+      }),
+    });
+
+    if (!isDefined(reconnectTarget)) {
+      throw new ConnectionProviderException(
+        `Cannot reconnect connectedAccount ${reconnectingConnectedAccountId}: not found in this workspace for the requested provider, or not usable by this member.`,
+        ConnectionProviderExceptionCode.FORBIDDEN,
+      );
+    }
+
+    return reconnectTarget;
   }
 
   private async signState(payload: AppOAuthStateJwtPayload): Promise<string> {

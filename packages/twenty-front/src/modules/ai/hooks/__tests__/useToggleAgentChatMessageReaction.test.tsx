@@ -81,8 +81,16 @@ describe('useToggleAgentChatMessageReaction', () => {
     });
 
     expect(getReactions()).toEqual([
-      { emoji: '👍', workspaceMemberIds: [WORKSPACE_MEMBER_ID] },
-      { emoji: '🎉', workspaceMemberIds: [WORKSPACE_MEMBER_ID] },
+      {
+        emoji: '👍',
+        workspaceMemberIds: [WORKSPACE_MEMBER_ID],
+        hasAssistantReacted: false,
+      },
+      {
+        emoji: '🎉',
+        workspaceMemberIds: [WORKSPACE_MEMBER_ID],
+        hasAssistantReacted: false,
+      },
     ]);
 
     await act(async () => {
@@ -91,7 +99,11 @@ describe('useToggleAgentChatMessageReaction', () => {
     });
 
     expect(getReactions()).toEqual([
-      { emoji: '🎉', workspaceMemberIds: [WORKSPACE_MEMBER_ID] },
+      {
+        emoji: '🎉',
+        workspaceMemberIds: [WORKSPACE_MEMBER_ID],
+        hasAssistantReacted: false,
+      },
     ]);
     expect(enqueueToast).toHaveBeenCalledTimes(1);
   });
@@ -151,7 +163,11 @@ describe('useToggleAgentChatMessageReaction', () => {
 
     const { result, getReactions, store } = renderToggleReaction();
     const confirmedReactions = [
-      { emoji: '👍', workspaceMemberIds: [WORKSPACE_MEMBER_ID] },
+      {
+        emoji: '👍',
+        workspaceMemberIds: [WORKSPACE_MEMBER_ID],
+        hasAssistantReacted: false,
+      },
     ];
 
     let addToggle: Promise<void> = Promise.resolve();

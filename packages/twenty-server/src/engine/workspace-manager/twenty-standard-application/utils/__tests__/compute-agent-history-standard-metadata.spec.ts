@@ -175,16 +175,16 @@ describe('agent history workspace metadata', () => {
   it('removes reactions with their message or their member, one per member and emoji', () => {
     const { fields, indexes } = STANDARD_OBJECTS.agentMessageReaction;
 
-    for (const [field, joinColumnName] of [
-      [fields.message, 'messageId'],
-      [fields.workspaceMember, 'workspaceMemberId'],
+    for (const [field, joinColumnName, isNullable] of [
+      [fields.message, 'messageId', false],
+      [fields.workspaceMember, 'workspaceMemberId', true],
     ] as const) {
       expect(
         allFlatEntityMaps.flatFieldMetadataMaps.byUniversalIdentifier[
           field.universalIdentifier
         ],
       ).toMatchObject({
-        isNullable: false,
+        isNullable,
         settings: { onDelete: 'CASCADE', joinColumnName },
       });
     }

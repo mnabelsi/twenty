@@ -127,6 +127,7 @@ export interface AgentMessagePart {
 
 export interface AgentMessageReactionSummary {
     emoji: Scalars['String']
+    hasAssistantReacted: Scalars['Boolean']
     workspaceMemberIds: Scalars['UUID'][]
     __typename: 'AgentMessageReactionSummary'
 }
@@ -4091,6 +4092,7 @@ export interface AgentMessagePartGenqlSelection{
 
 export interface AgentMessageReactionSummaryGenqlSelection{
     emoji?: boolean | number
+    hasAssistantReacted?: boolean | number
     workspaceMemberIds?: boolean | number
     __typename?: boolean | number
     __scalar?: boolean | number

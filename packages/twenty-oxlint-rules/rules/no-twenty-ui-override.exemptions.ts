@@ -26,6 +26,11 @@ export const TWENTY_UI_OVERRIDE_EXEMPTIONS = [
   },
   {
     filePath:
+      'packages/twenty-front/src/modules/front-components/media-session/components/FrontComponentMediaSessionIndicator.tsx',
+    reason: 'Popover.Popup sized and spaced for the recording sessions list',
+  },
+  {
+    filePath:
       'packages/twenty-front/src/modules/log-console/components/LogConsoleDetailPanel.tsx',
     reason: 'Card.Root laid out as a padded error message block',
   },
@@ -43,6 +48,12 @@ export const TWENTY_UI_OVERRIDE_EXEMPTIONS = [
     filePath:
       'packages/twenty-front/src/modules/marketplace/components/SettingsApplicationInstallPermissionValidationModal.tsx',
     reason: 'LightButton pinned to the corner of the fullscreen dialog',
+  },
+  {
+    filePath:
+      'packages/twenty-front/src/modules/navigation/components/MobileNavigationBar.tsx',
+    reason:
+      'IconButton sized as a 40px touch target with the current page fill',
   },
   {
     filePath:

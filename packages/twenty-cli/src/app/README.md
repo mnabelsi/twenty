@@ -41,3 +41,18 @@ compiler resolution and project requirements.
 Parity tests compare generated source, manifests and bundles with the repository
 SDK. Command failure and cancellation tests inject tooling fixtures into a bundle
 of the production worker; real-app tests exercise its compiler and bundler.
+
+## Translation plans
+
+`app plan` previews registration-wide locale and message changes separately from
+workspace metadata. `app apply` reports the translation actions returned after
+persistence; these may differ from the earlier preview. Source labels come from
+the build's metadata descriptors and authoring locale files; unknown message IDs
+remain visible. Translation removal is independent of `--no-delete`, which only
+controls workspace metadata deletion.
+
+The JSON result keeps metadata `actions` unchanged and adds `translationActions`.
+An empty array confirms no translation changes, `null` means translation reporting
+or synchronization failed. Metadata success can coexist with a translation
+failure; apply warns to retry in that case. The CLI requires a server that exposes
+`translationActions`.

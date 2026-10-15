@@ -2,7 +2,10 @@ import { Inject, Injectable, Optional } from '@nestjs/common';
 
 import { type ToolSet } from 'ai';
 import { PermissionFlagType } from 'twenty-shared/constants';
+import { isDefined } from 'twenty-shared/utils';
 
+import { ApplicationService } from 'src/engine/core-modules/application/application.service';
+import { canCallerReachApplication } from 'src/engine/core-modules/application/utils/can-caller-reach-application.util';
 import { type GenerateDescriptorOptions } from 'src/engine/core-modules/tool-provider/interfaces/generate-descriptor-options.type';
 import { type ToolProvider } from 'src/engine/core-modules/tool-provider/interfaces/tool-provider.interface';
 import { type ToolProviderContext } from 'src/engine/core-modules/tool-provider/interfaces/tool-provider-context.type';
@@ -30,6 +33,7 @@ export class WorkflowToolProvider implements ToolProvider {
     private readonly workflowToolService: WorkflowToolWorkspaceService | null,
     private readonly permissionsService: PermissionsService,
     private readonly flatEntityMapsCacheService: WorkspaceManyOrAllFlatEntityMapsCacheService,
+    private readonly applicationService: ApplicationService,
   ) {}
 
   async isAvailable(context: ToolProviderContext): Promise<boolean> {
@@ -98,6 +102,27 @@ export class WorkflowToolProvider implements ToolProvider {
       workspaceId: context.workspaceId,
       rolePermissionConfig: context.rolePermissionConfig,
       userWorkspaceId: context.userWorkspaceId,
+      // Workflows created through tools belong to the workspace custom application
+      canCreateWorkflows:
+        await this.canCallerReachWorkspaceCustomApplication(context),
+    });
+  }
+
+  private async canCallerReachWorkspaceCustomApplication(
+    context: ToolProviderContext,
+  ): Promise<boolean> {
+    if (!isDefined(context.application)) {
+      return true;
+    }
+
+    const { workspaceCustomFlatApplication } =
+      await this.applicationService.findWorkspaceTwentyStandardAndCustomApplicationOrThrow(
+        { workspaceId: context.workspaceId },
+      );
+
+    return canCallerReachApplication({
+      callingApplication: context.application,
+      applicationId: workspaceCustomFlatApplication.id,
     });
   }
 }

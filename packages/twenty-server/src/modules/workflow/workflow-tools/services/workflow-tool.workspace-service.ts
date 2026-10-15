@@ -77,10 +77,12 @@ export class WorkflowToolWorkspaceService {
     workspaceId,
     rolePermissionConfig,
     userWorkspaceId,
+    canCreateWorkflows,
   }: {
     workspaceId: string;
     rolePermissionConfig: RolePermissionConfig;
     userWorkspaceId?: string;
+    canCreateWorkflows: boolean;
   }): ToolSet {
     const context: WorkflowToolContext = {
       workspaceId,
@@ -89,7 +91,9 @@ export class WorkflowToolWorkspaceService {
     };
 
     const tools = [
-      createCreateCompleteWorkflowTool(this.deps, context),
+      ...(canCreateWorkflows
+        ? [createCreateCompleteWorkflowTool(this.deps, context)]
+        : []),
       createCreateWorkflowVersionStepTool(this.deps, context),
       createUpdateWorkflowVersionStepTool(this.deps, context),
       createUpdateWorkflowVersionTriggerTool(this.deps, context),

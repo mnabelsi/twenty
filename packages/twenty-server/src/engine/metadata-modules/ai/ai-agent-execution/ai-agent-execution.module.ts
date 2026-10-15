@@ -36,6 +36,7 @@ import { AgentHistoryModule } from 'src/engine/metadata-modules/ai/ai-history/ai
 import { PermissionsModule } from 'src/engine/metadata-modules/permissions/permissions.module';
 import { UserRoleModule } from 'src/engine/metadata-modules/user-role/user-role.module';
 import { provideWorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/provide-workspace-scoped-repository';
+import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { provideWorkspaceScopedRepository } from 'src/engine/twenty-orm/workspac
     UserRoleModule,
     PermissionsModule,
     ToolProviderModule,
+    WorkspaceCacheModule,
     TypeOrmModule.forFeature([
       AgentEntity,
       FileEntity,

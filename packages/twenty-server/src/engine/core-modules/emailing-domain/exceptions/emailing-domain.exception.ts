@@ -18,6 +18,7 @@ export enum EmailingDomainExceptionCode {
   MESSAGE_CAMPAIGN_REQUIRES_PAID_PLAN = 'MESSAGE_CAMPAIGN_REQUIRES_PAID_PLAN',
   MESSAGE_CAMPAIGN_NOT_CANCELABLE = 'MESSAGE_CAMPAIGN_NOT_CANCELABLE',
   MESSAGE_CAMPAIGN_SCHEDULE_NOT_IN_FUTURE = 'MESSAGE_CAMPAIGN_SCHEDULE_NOT_IN_FUTURE',
+  MESSAGE_CAMPAIGN_NO_SENDABLE_RECIPIENTS = 'MESSAGE_CAMPAIGN_NO_SENDABLE_RECIPIENTS',
 }
 
 const getEmailingDomainExceptionUserFriendlyMessage = (
@@ -50,6 +51,8 @@ const getEmailingDomainExceptionUserFriendlyMessage = (
       return msg`Only a scheduled or sending campaign can be canceled.`;
     case EmailingDomainExceptionCode.MESSAGE_CAMPAIGN_SCHEDULE_NOT_IN_FUTURE:
       return msg`Pick a send time in the future.`;
+    case EmailingDomainExceptionCode.MESSAGE_CAMPAIGN_NO_SENDABLE_RECIPIENTS:
+      return msg`No one on this list can receive the campaign.`;
     default:
       assertUnreachable(code);
   }

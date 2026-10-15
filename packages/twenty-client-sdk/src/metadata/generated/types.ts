@@ -5699,6 +5699,9 @@ export default {
             "id": [
                 493
             ],
+            "importProgress": [
+                8
+            ],
             "isContactAutoCreationEnabled": [
                 4
             ],

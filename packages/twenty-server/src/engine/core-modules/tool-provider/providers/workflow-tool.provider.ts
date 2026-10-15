@@ -102,8 +102,7 @@ export class WorkflowToolProvider implements ToolProvider {
       workspaceId: context.workspaceId,
       rolePermissionConfig: context.rolePermissionConfig,
       userWorkspaceId: context.userWorkspaceId,
-      // Workflows created through tools belong to the workspace custom application
-      canCreateWorkflows:
+      canReachWorkspaceCustomApplication:
         await this.canCallerReachWorkspaceCustomApplication(context),
     });
   }

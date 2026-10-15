@@ -18,6 +18,34 @@ const INSTALLED_APPLICATION = {
   id: 'installed-application-id',
 } as FlatApplication;
 
+const WORKFLOW_EDITION_TOOL_NAMES = [
+  'create_complete_workflow',
+  'create_workflow_version_step',
+  'update_workflow_version_step',
+  'update_workflow_version_trigger',
+  'delete_workflow_version_step',
+  'create_workflow_version_edge',
+  'delete_workflow_version_edge',
+  'create_draft_from_workflow_version',
+  'update_workflow_version_positions',
+  'activate_workflow_version',
+  'deactivate_workflow_version',
+  'delete_workflow',
+  'get_logic_function_source',
+  'update_logic_function_source',
+  'list_logic_function_tools',
+  'update_workflow_agent',
+];
+
+const WORKFLOW_READ_TOOL_NAMES = [
+  'compute_step_output_schema',
+  'get_workflow_current_version',
+  'list_workflows',
+  'get_workflow_run',
+  'list_workflow_runs',
+  'validate_workflow',
+];
+
 const buildProvider = () => {
   // The tools only reach their dependencies once executed
   const workflowToolService = new WorkflowToolWorkspaceService(
@@ -64,30 +92,33 @@ const listToolNames = async (application?: FlatApplication) => {
 };
 
 describe('WorkflowToolProvider', () => {
-  it('should let a user create workflows', async () => {
-    expect(await listToolNames()).toContain('create_complete_workflow');
+  it('should let a user edit workflows', async () => {
+    expect(await listToolNames()).toEqual([
+      ...WORKFLOW_EDITION_TOOL_NAMES,
+      ...WORKFLOW_READ_TOOL_NAMES,
+    ]);
   });
 
-  it('should let the workspace custom application create workflows', async () => {
-    expect(await listToolNames(WORKSPACE_CUSTOM_APPLICATION)).toContain(
-      'create_complete_workflow',
+  it('should let the workspace custom application edit workflows', async () => {
+    expect(await listToolNames(WORKSPACE_CUSTOM_APPLICATION)).toEqual([
+      ...WORKFLOW_EDITION_TOOL_NAMES,
+      ...WORKFLOW_READ_TOOL_NAMES,
+    ]);
+  });
+
+  it('should only let an installed application read workflows', async () => {
+    expect(await listToolNames(INSTALLED_APPLICATION)).toEqual(
+      WORKFLOW_READ_TOOL_NAMES,
     );
   });
 
-  it('should hide workflow creation from an installed application', async () => {
-    const toolNames = await listToolNames(INSTALLED_APPLICATION);
-
-    expect(toolNames).not.toContain('create_complete_workflow');
-    expect(toolNames).toContain('list_workflows');
-  });
-
-  it('should refuse workflow creation to an installed application', async () => {
+  it('should refuse logic function edition to an installed application', async () => {
     await expect(
       buildProvider().executeStaticTool(
-        'create_complete_workflow',
+        'update_logic_function_source',
         {},
         buildContext(INSTALLED_APPLICATION),
       ),
-    ).rejects.toThrow('Tool "create_complete_workflow" not found');
+    ).rejects.toThrow('Tool "update_logic_function_source" not found');
   });
 });

@@ -77,12 +77,12 @@ export class WorkflowToolWorkspaceService {
     workspaceId,
     rolePermissionConfig,
     userWorkspaceId,
-    canCreateWorkflows,
+    canReachWorkspaceCustomApplication,
   }: {
     workspaceId: string;
     rolePermissionConfig: RolePermissionConfig;
     userWorkspaceId?: string;
-    canCreateWorkflows: boolean;
+    canReachWorkspaceCustomApplication: boolean;
   }): ToolSet {
     const context: WorkflowToolContext = {
       workspaceId,
@@ -90,30 +90,35 @@ export class WorkflowToolWorkspaceService {
       userWorkspaceId,
     };
 
+    // These author the workspace custom application's workflows and code
+    const workspaceCustomApplicationTools = canReachWorkspaceCustomApplication
+      ? [
+          createCreateCompleteWorkflowTool(this.deps, context),
+          createCreateWorkflowVersionStepTool(this.deps, context),
+          createUpdateWorkflowVersionStepTool(this.deps, context),
+          createUpdateWorkflowVersionTriggerTool(this.deps, context),
+          createDeleteWorkflowVersionStepTool(this.deps, context),
+          createCreateWorkflowVersionEdgeTool(this.deps, context),
+          createDeleteWorkflowVersionEdgeTool(this.deps, context),
+          createCreateDraftFromWorkflowVersionTool(this.deps, context),
+          createUpdateWorkflowVersionPositionsTool(this.deps, context),
+          createActivateWorkflowVersionTool(this.deps, context),
+          createDeactivateWorkflowVersionTool(this.deps, context),
+          createDeleteWorkflowTool(this.deps, context),
+          createGetLogicFunctionSourceTool(this.deps, context),
+          createUpdateLogicFunctionSourceTool(this.deps, context),
+          createListLogicFunctionToolsTool(this.deps, context),
+          createUpdateWorkflowAgentTool(this.deps, context),
+        ]
+      : [];
+
     const tools = [
-      ...(canCreateWorkflows
-        ? [createCreateCompleteWorkflowTool(this.deps, context)]
-        : []),
-      createCreateWorkflowVersionStepTool(this.deps, context),
-      createUpdateWorkflowVersionStepTool(this.deps, context),
-      createUpdateWorkflowVersionTriggerTool(this.deps, context),
-      createDeleteWorkflowVersionStepTool(this.deps, context),
-      createCreateWorkflowVersionEdgeTool(this.deps, context),
-      createDeleteWorkflowVersionEdgeTool(this.deps, context),
-      createCreateDraftFromWorkflowVersionTool(this.deps, context),
-      createUpdateWorkflowVersionPositionsTool(this.deps, context),
-      createActivateWorkflowVersionTool(this.deps, context),
-      createDeactivateWorkflowVersionTool(this.deps, context),
+      ...workspaceCustomApplicationTools,
       createComputeStepOutputSchemaTool(this.deps, context),
       createGetWorkflowCurrentVersionTool(this.deps, context),
       createListWorkflowsTool(this.deps, context),
-      createDeleteWorkflowTool(this.deps, context),
       createGetWorkflowRunTool(this.deps, context),
       createListWorkflowRunsTool(this.deps, context),
-      createGetLogicFunctionSourceTool(this.deps, context),
-      createUpdateLogicFunctionSourceTool(this.deps, context),
-      createListLogicFunctionToolsTool(this.deps, context),
-      createUpdateWorkflowAgentTool(this.deps, context),
       createValidateWorkflowTool(this.deps, context),
     ];
 

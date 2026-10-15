@@ -26,8 +26,33 @@ import {
 } from 'src/engine/metadata-modules/ai/ai-models/services/ai-model-registry.service';
 import { SEED_APPLE_WORKSPACE_ID } from 'src/engine/workspace-manager/dev-seeder/core/constants/seeder-workspaces.constant';
 
-const CREATE_WORKFLOW_TOOL_NAME = 'create_complete_workflow';
-const LIST_WORKFLOWS_TOOL_NAME = 'list_workflows';
+const WORKFLOW_EDITION_TOOL_NAMES = [
+  'create_complete_workflow',
+  'create_workflow_version_step',
+  'update_workflow_version_step',
+  'update_workflow_version_trigger',
+  'delete_workflow_version_step',
+  'create_workflow_version_edge',
+  'delete_workflow_version_edge',
+  'create_draft_from_workflow_version',
+  'update_workflow_version_positions',
+  'activate_workflow_version',
+  'deactivate_workflow_version',
+  'delete_workflow',
+  'get_logic_function_source',
+  'update_logic_function_source',
+  'list_logic_function_tools',
+  'update_workflow_agent',
+];
+
+const WORKFLOW_READ_TOOL_NAMES = [
+  'compute_step_output_schema',
+  'get_workflow_current_version',
+  'list_workflows',
+  'get_workflow_run',
+  'list_workflow_runs',
+  'validate_workflow',
+];
 
 const USAGE = {
   inputTokens: {
@@ -83,7 +108,7 @@ const listMcpWorkflowToolNames = async (token: string) => {
   return (catalog[ToolCategory.WORKFLOW] ?? []).map(({ name }) => name);
 };
 
-describe('Workflow creation outside the workspace custom application should be refused', () => {
+describe('Workflow edition outside the workspace custom application should be refused', () => {
   let application: ApplicationWithResources;
   let agentRoleId: string;
   let agentUniversalIdentifier: string;
@@ -91,7 +116,7 @@ describe('Workflow creation outside the workspace custom application should be r
 
   beforeAll(async () => {
     application = await setupApplicationWithResources({
-      name: 'Workflow Creation Scope Probe',
+      name: 'Workflow Edition Scope Probe',
     });
 
     [{ universalIdentifier: agentUniversalIdentifier }] =
@@ -102,7 +127,7 @@ describe('Workflow creation outside the workspace custom application should be r
 
     const { data } = await createOneRole({
       input: {
-        label: 'Workflow creation scope probe',
+        label: 'Workflow edition scope probe',
         canReadAllObjectRecords: false,
         canUpdateAllObjectRecords: false,
         canSoftDeleteAllObjectRecords: false,
@@ -158,33 +183,34 @@ describe('Workflow creation outside the workspace custom application should be r
 
   afterEach(() => jest.restoreAllMocks());
 
-  it('should let a user create workflows through MCP', async () => {
+  it('should let a user edit workflows through MCP', async () => {
     expect(
       await listMcpWorkflowToolNames(APPLE_JANE_ADMIN_ACCESS_TOKEN),
-    ).toContain(CREATE_WORKFLOW_TOOL_NAME);
+    ).toEqual(expect.arrayContaining(WORKFLOW_EDITION_TOOL_NAMES));
   });
 
-  it('should hide workflow creation from an installed application token', async () => {
+  it('should only let an installed application token read workflows through MCP', async () => {
     const workflowToolNames = await listMcpWorkflowToolNames(applicationToken);
 
-    expect(workflowToolNames).toContain(LIST_WORKFLOWS_TOOL_NAME);
-    expect(workflowToolNames).not.toContain(CREATE_WORKFLOW_TOOL_NAME);
+    expect([...workflowToolNames].sort()).toEqual(
+      [...WORKFLOW_READ_TOOL_NAMES].sort(),
+    );
   });
 
   it('should refuse workflow creation to an installed application token', async () => {
     const result = await callMcpTool({
       toolName: 'execute_tool',
-      toolArguments: { toolName: CREATE_WORKFLOW_TOOL_NAME, arguments: {} },
+      toolArguments: { toolName: 'create_complete_workflow', arguments: {} },
       token: applicationToken,
     });
 
     expect(result.isError).toBe(true);
     expect(JSON.parse(result.content[0].text).message).toBe(
-      `Tool "${CREATE_WORKFLOW_TOOL_NAME}" not found`,
+      'Tool "create_complete_workflow" not found',
     );
   });
 
-  it('should hide workflow creation from an installed application agent', async () => {
+  it('should only let an installed application agent read workflows', async () => {
     const instructions = mockModelCapturingInstructions();
 
     const response = await makeMetadataApiRequest(
@@ -193,7 +219,13 @@ describe('Workflow creation outside the workspace custom application should be r
     );
 
     expect(response.body.errors).toBeUndefined();
-    expect(instructions[0]).toContain(`\`${LIST_WORKFLOWS_TOOL_NAME}\``);
-    expect(instructions[0]).not.toContain(`\`${CREATE_WORKFLOW_TOOL_NAME}\``);
+
+    for (const toolName of WORKFLOW_READ_TOOL_NAMES) {
+      expect(instructions[0]).toContain(`\`${toolName}\``);
+    }
+
+    for (const toolName of WORKFLOW_EDITION_TOOL_NAMES) {
+      expect(instructions[0]).not.toContain(`\`${toolName}\``);
+    }
   });
 });

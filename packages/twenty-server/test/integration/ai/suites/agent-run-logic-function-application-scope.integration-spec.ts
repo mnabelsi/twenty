@@ -9,6 +9,8 @@ import {
   type ApplicationWithResources,
   setupApplicationWithResources,
 } from 'test/integration/metadata/suites/application/utils/setup-application-with-resources.util';
+import { createOneLogicFunction } from 'test/integration/metadata/suites/logic-function/utils/create-logic-function.util';
+import { deleteLogicFunction } from 'test/integration/metadata/suites/logic-function/utils/delete-logic-function.util';
 import { createOneRole } from 'test/integration/metadata/suites/role/utils/create-one-role.util';
 import { deleteOneRole } from 'test/integration/metadata/suites/role/utils/delete-one-role.util';
 import { upsertPermissionFlags } from 'test/integration/metadata/suites/role-permission-flag/utils/upsert-permission-flags.util';
@@ -99,13 +101,14 @@ const mockModelExecutingTool = ({
   return toolResult;
 };
 
-describe('Another application logic function should be out of an agent run reach', () => {
+describe('Logic functions of other applications should be out of an installed application agent reach', () => {
   let ownerApplication: ApplicationWithResources;
   let readerApplication: ApplicationWithResources;
   let readerAgentUniversalIdentifier: string;
   let readerAgentRoleId: string;
   let ownerToolName: string;
   let ownerApplicationToken: string;
+  let workspaceLogicFunctionId: string;
 
   const runReaderAgentWithTool = async (request: {
     toolName: string;
@@ -162,7 +165,7 @@ describe('Another application logic function should be out of an agent run reach
 
     readerAgentRoleId = data.createOneRole.id;
 
-    // offers the agent get_logic_function_source
+    // offers the agent the workflow tools, so only the application rule refuses them
     await upsertPermissionFlags({
       expectToFail: false,
       input: {
@@ -191,9 +194,23 @@ describe('Another application logic function should be out of an agent run reach
     });
 
     ownerApplicationToken = applicationAccessToken.token;
+
+    const { data: logicFunctionData } = await createOneLogicFunction({
+      input: { name: 'Workspace logic function' },
+      expectToFail: false,
+    });
+
+    workspaceLogicFunctionId = logicFunctionData.createOneLogicFunction.id;
   }, 180000);
 
   afterAll(async () => {
+    if (isDefined(workspaceLogicFunctionId)) {
+      await deleteLogicFunction({
+        input: { id: workspaceLogicFunctionId },
+        expectToFail: false,
+      });
+    }
+
     for (const application of [ownerApplication, readerApplication]) {
       if (isDefined(application)) {
         await cleanupApplicationAndAppRegistration({
@@ -220,34 +237,68 @@ describe('Another application logic function should be out of an agent run reach
     ).toContain(ownerToolName);
   });
 
-  it('should refuse the logic function tool to another application agent', async () => {
+  it('should let an installed application agent read workflows', async () => {
     const output = await runReaderAgentWithTool({
-      toolName: ownerToolName,
+      toolName: 'list_workflows',
       toolArguments: {},
     });
 
     expect(output).toEqual({
       type: 'json',
-      value: expect.objectContaining({
-        success: false,
-        message: `Tool "${ownerToolName}" is not available`,
-      }),
+      value: expect.objectContaining({ success: true }),
     });
   });
 
-  it('should refuse the logic function source to another application agent', async () => {
-    const output = await runReaderAgentWithTool({
-      toolName: 'get_logic_function_source',
-      toolArguments: { logicFunctionId: ownerApplication.logicFunctionId },
-    });
-
-    expect(output).toEqual({
-      type: 'json',
-      value: expect.objectContaining({
-        success: false,
-        error:
-          'Only logic functions written in this workspace can be read or changed from source',
+  it.each([
+    {
+      title: 'run another application logic function tool',
+      request: () => ({ toolName: ownerToolName, toolArguments: {} }),
+    },
+    {
+      title: 'read another application logic function source',
+      request: () => ({
+        toolName: 'get_logic_function_source',
+        toolArguments: { logicFunctionId: ownerApplication.logicFunctionId },
       }),
-    });
-  });
+    },
+    {
+      title: 'read a workspace logic function source',
+      request: () => ({
+        toolName: 'get_logic_function_source',
+        toolArguments: { logicFunctionId: workspaceLogicFunctionId },
+      }),
+    },
+    {
+      title: 'rewrite a workspace logic function source',
+      request: () => ({
+        toolName: 'update_logic_function_source',
+        toolArguments: {
+          logicFunctionId: workspaceLogicFunctionId,
+          code: 'export const main = async () => ({});',
+        },
+      }),
+    },
+    {
+      title: 'list the logic functions workflows can run',
+      request: () => ({
+        toolName: 'list_logic_function_tools',
+        toolArguments: {},
+      }),
+    },
+  ])(
+    'should refuse an installed application agent to $title',
+    async ({ request }) => {
+      const { toolName, toolArguments } = request();
+
+      const output = await runReaderAgentWithTool({ toolName, toolArguments });
+
+      expect(output).toEqual({
+        type: 'json',
+        value: expect.objectContaining({
+          success: false,
+          message: `Tool "${toolName}" is not available`,
+        }),
+      });
+    },
+  );
 });
